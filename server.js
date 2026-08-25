@@ -5,22 +5,20 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 app.use(express.json());
 
-// Obligatorio en Render para leer la IP real tras el proxy inverso
+// Permite capturar la IP real del cliente detrás del proxy inverso de Render
 app.set('trust proxy', true);
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('Error: Variables SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridas.');
+  console.error('Error: Faltan las variables SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.');
   process.exit(1);
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-/**
- * Endpoint 1: Crear un nuevo enlace de rastreo
- */
+// 1. Endpoint para crear el enlace
 app.post('/api/generate-link', async (req, res) => {
   const { targetUrl } = req.body;
 
@@ -51,9 +49,7 @@ app.post('/api/generate-link', async (req, res) => {
   }
 });
 
-/**
- * Endpoint 2: Enlace de redirección y captura de geolocalización
- */
+// 2. Endpoint que procesa la IP y realiza la redirección
 app.get('/r/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -97,14 +93,14 @@ app.get('/r/:id', async (req, res) => {
             .eq('id', id);
         }
       } catch (geoErr) {
-        console.error('Error resolviendo IP:', geoErr.message);
+        console.error('Error resolviendo geolocalización IP:', geoErr.message);
       }
     }
 
     return res.redirect(302, redirectTarget);
 
   } catch (err) {
-    console.error('Error procesando redirección:', err.message);
+    console.error('Error en redirección:', err.message);
     return res.redirect(302, 'https://google.com');
   }
 });
