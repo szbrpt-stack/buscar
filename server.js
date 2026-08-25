@@ -20,7 +20,6 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
  * Endpoint 1: Crear un nuevo enlace de rastreo
- * Body esperado: { "targetUrl": "https://ejemplo.com/destino" }
  */
 app.post('/api/generate-link', async (req, res) => {
   const { targetUrl } = req.body;
@@ -58,11 +57,9 @@ app.post('/api/generate-link', async (req, res) => {
 app.get('/r/:id', async (req, res) => {
   const { id } = req.params;
 
-  // 1. Extraer IP pública real
   const forwarded = req.headers['x-forwarded-for'];
   let clientIp = forwarded ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
 
-  // Limpiar formato IPv6 local si aplica (::ffff:127.0.0.1)
   if (clientIp && clientIp.includes('::ffff:')) {
     clientIp = clientIp.replace('::ffff:', '');
   }
@@ -70,7 +67,6 @@ app.get('/r/:id', async (req, res) => {
   const userAgent = req.headers['user-agent'] || 'Desconocido';
 
   try {
-    // 2. Consultar URL de destino en Supabase
     const { data: session, error } = await supabase
       .from('ip_tracking')
       .select('target_url')
@@ -79,15 +75,12 @@ app.get('/r/:id', async (req, res) => {
 
     const redirectTarget = (!error && session?.target_url) ? session.target_url : 'https://google.com';
 
-    // 3. Obtener coordenadas desde servicio de IP (ip-api.com)
-    // En entornos locales (localhost / 127.0.0.1), el servicio no resolverá coordenadas reales.
     if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
       try {
         const geoResponse = await fetch(`http://ip-api.com/json/${clientIp}?fields=status,country,regionName,city,lat,lon,isp`);
         const geo = await geoResponse.json();
 
         if (geo.status === 'success') {
-          // Actualizar registro en Supabase de forma asíncrona
           await supabase
             .from('ip_tracking')
             .update({
@@ -104,11 +97,10 @@ app.get('/r/:id', async (req, res) => {
             .eq('id', id);
         }
       } catch (geoErr) {
-        console.error('Error resolviendo geolocalización de IP:', geoErr.message);
+        console.error('Error resolviendo IP:', geoErr.message);
       }
     }
 
-    // 4. Redirigir al usuario inmediatamente
     return res.redirect(302, redirectTarget);
 
   } catch (err) {
